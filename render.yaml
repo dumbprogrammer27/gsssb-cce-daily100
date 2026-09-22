@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: cce-adaptive100
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.7-flash
+      - key: GEMINI_VIDEO_MODEL
+        value: gemini-3.7-flash
+      - key: SESSION_DAYS
+        value: "30"

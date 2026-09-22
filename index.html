@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="gu">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#0b1020" />
+  <title>CCE Daily 100</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar glass">
+      <div>
+        <div class="eyebrow">GSSSB CCE PRELIMS • DAILY PRACTICE</div>
+        <h1>CCE Daily 100</h1>
+      </div>
+      <div class="header-actions">
+        <span id="cloudStatus" class="cloud-status">Guest • local progress</span>
+        <button class="ghost" id="authBtn">Login / Sign up</button>
+        <button class="ghost hidden" id="logoutBtn">Logout</button>
+        <button class="ghost" id="themeBtn" aria-label="Toggle theme">◐</button>
+        <button class="ghost" id="resetBtn">Reset progress</button>
+      </div>
+    </header>
+
+    <section class="hero-grid">
+      <div class="hero-card glass">
+        <div class="eyebrow">28 SEP EXAM COUNTDOWN</div>
+        <div id="countdown" class="countdown">—</div>
+        <p>Job સાથે focused MCQ practice. Topic-wise Adaptive 100: 100/100 complete પછી જ next 100 unlock થાય, અને wrong answers પરથી next set વધુ targeted બને.</p>
+        <div class="hero-actions">
+          <button class="primary" id="startDaily">Start Daily 100</button>
+          <button class="secondary" id="startMock">Full 150 Mock</button>
+        </div>
+      </div>
+      <div class="stats glass">
+        <div><span id="sCompleted">0</span><small>Completed</small></div>
+        <div><span id="sAccuracy">0%</span><small>Accuracy</small></div>
+        <div><span id="sScore">0</span><small>Net Score</small></div>
+        <div><span id="sWrong">0</span><small>Wrong Bank</small></div>
+      </div>
+    </section>
+
+    <nav class="tabs glass">
+      <button class="tab active" data-view="practice">Practice</button>
+      <button class="tab" data-view="subjects">Subjects</button>
+      <button class="tab" data-view="progress">My Progress</button>
+      <button class="tab" data-view="wrong">Wrong Revision</button>
+      <button class="tab" data-view="sources">Sources</button>
+    </nav>
+
+    <main>
+      <section id="practiceView" class="view active">
+        <div id="emptyState" class="empty glass">
+          <h2>100 questions. One clear target.</h2>
+          <p>Daily set exam-weighted છે: Reasoning 40, Quant 20, GA/Current Affairs 20, Gujarati 10, English 10.</p>
+          <button class="primary" id="emptyStart">Start today’s 100</button>
+        </div>
+
+        <div id="quizWrap" class="quiz-layout hidden">
+          <aside class="quiz-side glass">
+            <div class="side-row"><span>Mode</span><strong id="modeLabel">Daily 100</strong></div>
+            <div class="side-row"><span>Progress</span><strong id="progressLabel">1 / 100</strong></div>
+            <div class="side-row"><span>Score</span><strong id="liveScore">0</strong></div>
+            <div class="side-row"><span>Timer</span><strong id="timerLabel">—</strong></div>
+            <div class="progress-track"><i id="progressBar"></i></div>
+            <button class="secondary full" id="finishBtn">Finish set</button>
+          </aside>
+
+          <article class="question-card glass">
+            <div class="q-meta">
+              <span id="qSubject" class="pill">Reasoning</span>
+              <span id="qTopic" class="topic">Topic</span>
+              <a id="qLearn" class="learn-chip" href="#" target="_blank" rel="noopener">Learn topic ↗</a>
+            </div>
+            <h2 id="qText">Question</h2>
+            <div id="options" class="options"></div>
+            <button id="notAttempted" class="not-attempted">Not Attempted • 0 penalty</button>
+            <div id="feedback" class="feedback hidden"></div>
+            <div class="q-actions">
+              <button class="ghost" id="bookmarkBtn">☆ Save for revision</button>
+              <button class="primary" id="nextBtn" disabled>Next question</button>
+            </div>
+          </article>
+        </div>
+
+        <section id="resultCard" class="result glass hidden">
+          <div class="eyebrow">SET COMPLETE</div>
+          <h2 id="resultTitle">Daily 100 finished</h2>
+          <div class="result-grid">
+            <div><b id="rCorrect">0</b><span>Correct</span></div>
+            <div><b id="rWrong">0</b><span>Wrong</span></div>
+            <div><b id="rSkip">0</b><span>Not attempted</span></div>
+            <div><b id="rNet">0</b><span>Net score</span></div>
+          </div>
+          <p id="resultNote"></p>
+          <div class="hero-actions">
+            <button class="primary" id="next100Btn">Load next 100</button>
+            <button class="secondary" id="reviewWrongBtn">Revise wrong answers</button>
+          </div>
+        </section>
+      </section>
+
+      <section id="subjectsView" class="view">
+        <div class="section-head"><div><div class="eyebrow">SUBJECT → TOPIC PRACTICE</div><h2>Practice exactly what you need</h2><p class="muted">દરેક topic માટે 100-question adaptive challenge + YouTube learning. 100 complete થયા પછી next 100 unlock.</p></div></div>
+        <div id="subjectGrid" class="subject-grid"></div>
+      </section>
+
+      <section id="progressView" class="view">
+        <div class="section-head"><div><div class="eyebrow">CLOUD-SYNCED ANALYTICS</div><h2>Your topic-wise progress</h2><p id="progressIdentity" class="muted">Login to sync this progress across devices.</p></div></div>
+        <div id="subjectProgress" class="progress-summary"></div>
+        <div class="glass progress-panel">
+          <div class="section-head compact"><div><div class="eyebrow">WEAK TOPICS FIRST</div><h3>Topic accuracy</h3></div></div>
+          <div id="topicProgress" class="topic-progress"></div>
+        </div>
+      </section>
+
+      <section id="wrongView" class="view">
+        <div class="section-head"><div><div class="eyebrow">SPACED REVISION</div><h2>Wrong-answer bank</h2><p class="muted">Every saved mistake includes the solution and a topic learning link.</p></div><button class="secondary" id="startWrong">Practice saved mistakes</button></div>
+        <div id="wrongList" class="wrong-list"></div>
+      </section>
+
+      <section id="sourcesView" class="view">
+        <div class="sources glass">
+          <h2>Trusted source setup</h2>
+          <p>Current affairs official PIB RSS પરથી sync થાય છે. AI modeમાં previous-paper portals + public YouTube paper-solution videosના recurring patterns analyze કરીને original adaptive MCQs બનાવવામાં આવે છે.</p>
+          <div class="source-row"><strong>PIB RSS</strong><span id="syncStatus">Checking…</span><button class="ghost" id="syncBtn">Sync now</button></div>
+          <div class="source-row"><strong>CCE pattern</strong><span>150 marks • 120 min • −0.25 wrong</span></div>
+          <div class="source-row"><strong>AI Adaptive Engine</strong><span id="aiStatus">Checking…</span><button class="ghost" id="refreshAnalysisBtn">Refresh PYQ/video analysis</button></div>
+          <div class="source-row"><strong>Adaptive rule</strong><span>Each topic: 100/100 required → next set unlocks. Wrong concepts receive extra weight in the next set.</span></div>
+          <div class="source-row"><strong>Cloud progress</strong><span id="privacyStatus">Guest mode: progress is also kept locally in this browser.</span></div>
+          <div class="source-row"><strong>Passwords</strong><span>Hashed on the server; the browser never stores your password.</span></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="authDialog" class="auth-dialog">
+    <form id="authForm" class="auth-card">
+      <button type="button" class="dialog-close" id="closeAuth" aria-label="Close">×</button>
+      <div class="eyebrow">SYNC YOUR PREPARATION</div>
+      <h2 id="authTitle">Login</h2>
+      <p id="authHint" class="muted">Use the same account on mobile and PC to keep one progress history.</p>
+      <label id="nameField" class="field hidden">Name
+        <input id="authName" autocomplete="name" maxlength="80" placeholder="Varun" />
+      </label>
+      <label class="field">Email
+        <input id="authEmail" type="email" autocomplete="email" required maxlength="180" placeholder="you@example.com" />
+      </label>
+      <label class="field">Password
+        <input id="authPassword" type="password" autocomplete="current-password" required minlength="8" maxlength="128" placeholder="Minimum 8 characters" />
+      </label>
+      <div id="authError" class="auth-error hidden"></div>
+      <button id="authSubmit" class="primary full" type="submit">Login</button>
+      <button id="authSwitch" class="ghost full" type="button">Create a new account</button>
+    </form>
+  </dialog>
+
+  <script src="questions.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
