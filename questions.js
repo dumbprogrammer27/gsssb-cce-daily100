@@ -8,11 +8,11 @@ const CCE = (() => {
   ];
 
   const TOPICS = {
-    reasoning:['Number Series','Alphabet Series','Coding-Decoding','Direction Sense','Rank & Position','Analogy','Blood Relation'],
-    quant:['Percentage','Profit & Loss','Ratio','Average','Simple Interest','Time-Speed-Distance','HCF','Time & Work'],
-    ga:['Indian Polity','Polity','Gujarat','Geography','Environment','Science','History','Economy','Current Affairs • PIB'],
-    gujarati:['સમાનાર્થી','વિરુદ્ધાર્થી','જોડણી','એક શબ્દ','શબ્દસમૂહ માટે એક શબ્દ','રૂઢિપ્રયોગ','કહેવત'],
-    english:['Tenses','Articles','Prepositions','Synonym','Antonym','Voice','Direct/Indirect','One word substitution','Homophones','Conjunction','Pronoun','Adjective','Adverb','Sentence correction','Vocabulary']
+    reasoning:['Coding-Decoding','Blood Relation','Problem on Ages and Height','Direction Sense','Clock and Calendar','Venn Diagram','Rank and Position','Arithmetic Progression','Logical Sequence of Words','Inserting the missing Character','Word, Numerical and General Analogy','Picture Based General Logical Questions','Probability','Data Interpretation and Data Sufficiency','Symmetry','Mathematical Operations','Mathematical Modeling','Mathematical Proof','Logical and Mathematical Analytical Ability','Statement and Prediction'],
+    quant:['Number System','LCM and HCF','Percentage and Partnership','Profit-Loss','Simple and Compound Interest','Ratio and Proportion','Time and Work, Wages and Chain Rule','Time, Speed and Distance','Mean, Mode and Median','Brackets and Expansions','Square/Square Roots, Cube/Cube Roots, Exponents','Polynomials and Factorisation','Linear Equations and Quadratic Equations','Area, Surface Area and Volume','Coordinate Geometry and Trigonometry'],
+    ga:['History of India','Cultural Heritage of India','Geography','Indian Polity','Economics','Science','Current Affairs: Regional, National and International'],
+    gujarati:['રૂઢિપ્રયોગનો અર્થ','કહેવતનો અર્થ','સમાસનો વિગ્રહ અને ઓળખ','છંદ','અલંકાર','શબ્દસમૂહ માટે એક શબ્દ','જોડણીશુદ્ધિ','લેખનશુદ્ધિ/ભાષાશુદ્ધિ','સંધિ જોડો કે છોડો','સમાનાર્થી શબ્દ','વિરુદ્ધાર્થી શબ્દ','વિભક્તિ','ધ્વનિ','વ્યંજન-સ્વર જોડી શબ્દ બનાવો','શબ્દોને શબ્દકોષના ક્રમમાં ગોઠવો','વાક્ય પરિવર્તન','ગુજરાતી-અંગ્રેજી ભાષાંતર'],
+    english:['Tenses','Voices','Direct/Indirect Speech','Articles and Determiners','Adjectives, Prepositions and Conjunctions','Verbs and Adverbs','Noun and Pronoun','Jumbled Words and Sentences','Synonyms','Antonyms','Homonyms/Homophones','Transformation of Sentence','Idiomatic Expressions','One Word Substitution','English-Gujarati Translation']
   };
 
   const SOURCE_URLS = {

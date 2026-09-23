@@ -1,3 +1,29 @@
+# GSSSB CCE Adaptive 100 v4 (2026)
+
+## New in v4
+- Fixes transient Gemini 503/high-demand failures with exponential retry + automatic model fallback.
+- Header/API indicator and a real **Test connection** button.
+- Generates topic sets in four smaller AI batches, then de-duplicates against current batch and up to 14 previous sets.
+- Old Papers tab: cached analysis, source links, recurring patterns, topic-wise PYQ-style 100.
+- AI 2026 Real Mock: 150 questions, 120 min, exact 60/30/30/15/15 distribution.
+- Full 25 June 2026 syllabus topics are shown in Subjects.
+- Wrong answers remain weighted in future adaptive sets.
+
+## Render environment
+```
+DATABASE_URL=...
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-3.7-flash
+GEMINI_FALLBACK_MODELS=gemini-3.5-flash,gemini-3.5-flash-lite
+GEMINI_VIDEO_MODEL=gemini-3.5-flash-lite
+SESSION_DAYS=30
+```
+
+Build command: `npm install`  
+Start command: `npm start`  
+Health path: `/health`
+
+The API key stays server-side. Old-paper text is not copied verbatim: the AI learns recurring patterns/traps and creates original questions. “2026 Real Mock” means exam-style simulation, not leaked or predicted actual future questions.
 # CCE Adaptive 100 — v3
 
 GSSSB CCE prelim practice portal built for **topic-wise Daily 100 + adaptive revision**.

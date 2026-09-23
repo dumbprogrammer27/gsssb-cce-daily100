@@ -1,8 +1,8 @@
 {
   "name": "gsssb-cce-daily100",
-  "version": "3.0.0",
+  "version": "4.0.0",
   "private": true,
-  "description": "GSSSB CCE adaptive topic-wise Daily 100 with Gemini, PYQ/video pattern analysis and cloud progress",
+  "description": "GSSSB CCE 2026 adaptive MCQ portal with resilient Gemini fallback, PYQ analyzer, de-duplication and cloud progress",
   "scripts": {
     "start": "node server.js"
   },

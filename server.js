@@ -13,6 +13,9 @@ const SESSION_DAYS = Math.max(1, Math.min(90, Number(process.env.SESSION_DAYS ||
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.7-flash';
 const GEMINI_VIDEO_MODEL = process.env.GEMINI_VIDEO_MODEL || GEMINI_MODEL;
+const GEMINI_FALLBACK_MODELS = String(process.env.GEMINI_FALLBACK_MODELS || 'gemini-3.5-flash,gemini-3.5-flash-lite').split(',').map(s=>s.trim()).filter(Boolean);
+const GEMINI_MODELS = [...new Set([GEMINI_MODEL, ...GEMINI_FALLBACK_MODELS])];
+const AI_RETRY_DELAYS_MS = [900, 1900, 3900];
 const pool = DATABASE_URL && Pool ? new Pool({ connectionString: DATABASE_URL, max: 5, idleTimeoutMillis: 30000 }) : null;
 const cache = { at: 0, data: [] };
 const authBuckets = new Map();
@@ -25,6 +28,9 @@ const RSS_URLS = [
 const EXAM_SOURCE_PAGES = [
   'https://www.marugujarat.in/old-question-papers-paper-solutions/',
   'https://www.sahebbharti.com/2024/05/gsssb-cce-exam-all-shift-paper-download.html',
+  'https://www.marugujarat.in/2026/06/gsssb-class-3-cce-syllabus-2026/',
+  'https://pariksapath.in/cce-syllabus',
+  'https://pariksapath.in/materials',
   'https://www.adda247.com/exams/gujarat/gsssb-group-a-group-b-previous-year-question-papers/'
 ];
 const EXAM_SOURCE_VIDEOS = [
@@ -32,6 +38,20 @@ const EXAM_SOURCE_VIDEOS = [
   'https://www.youtube.com/watch?v=N1MvwriKM5c',
   'https://www.youtube.com/watch?v=1J2h_1z2tO0'
 ];
+
+const CCE_2026_SYLLABUS = {
+  exam:'GSSSB CCE Class-III Group A & B Preliminary Examination 2026', advertisement:'378/2025-26',
+  pattern:{total:150,minutes:120,negative:0.25,reasoning:60,quant:30,ga:30,gujarati:15,english:15},
+  levels:{reasoning:'Std. 10',quant:'Std. 10',english:'Std. 10 lower level',gujarati:'Std. 12 higher level',science:'Std. 10',ga:'History/Heritage/Geography/Polity/Economics Std. 12'},
+  topics:{
+    reasoning:['Coding-Decoding','Blood Relation','Problem on Ages and Height','Direction Sense','Clock and Calendar','Venn Diagram','Rank and Position','Arithmetic Progression','Logical Sequence of Words','Inserting the missing Character','Word, Numerical and General Analogy','Picture Based General Logical Questions','Probability','Data Interpretation and Data Sufficiency','Symmetry','Mathematical Operations','Mathematical Modeling','Mathematical Proof','Logical and Mathematical Analytical Ability','Statement and Prediction'],
+    quant:['Number System','LCM and HCF','Percentage and Partnership','Profit-Loss','Simple and Compound Interest','Ratio and Proportion','Time and Work, Wages and Chain Rule','Time, Speed and Distance','Mean, Mode and Median','Brackets and Expansions','Square/Square Roots, Cube/Cube Roots, Exponents','Polynomials and Factorisation','Linear Equations and Quadratic Equations','Area, Surface Area and Volume','Coordinate Geometry and Trigonometry'],
+    gujarati:['રૂઢિપ્રયોગનો અર્થ','કહેવતનો અર્થ','સમાસનો વિગ્રહ અને ઓળખ','છંદ','અલંકાર','શબ્દસમૂહ માટે એક શબ્દ','જોડણીશુદ્ધિ','લેખનશુદ્ધિ/ભાષાશુદ્ધિ','સંધિ જોડો કે છોડો','સમાનાર્થી શબ્દ','વિરુદ્ધાર્થી શબ્દ','વિભક્તિ','ધ્વનિ','વ્યંજન-સ્વર જોડી શબ્દ બનાવો','શબ્દોને શબ્દકોષના ક્રમમાં ગોઠવો','વાક્ય પરિવર્તન','ગુજરાતી-અંગ્રેજી ભાષાંતર'],
+    english:['Tenses','Voices','Direct/Indirect Speech','Articles and Determiners','Adjectives, Prepositions and Conjunctions','Verbs and Adverbs','Noun and Pronoun','Jumbled Words and Sentences','Synonyms','Antonyms','Homonyms/Homophones','Transformation of Sentence','Idiomatic Expressions','One Word Substitution','English-Gujarati Translation'],
+    ga:['History of India','Cultural Heritage of India','Geography','Indian Polity','Economics','Science','Current Affairs: Regional, National and International']
+  }
+};
+
 
 const mime = {
   '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8',
@@ -99,6 +119,22 @@ async function getAuth(req){if(!pool)return null;const token=parseCookies(req).c
 async function createSession(req,user){const token=crypto.randomBytes(32).toString('base64url');await pool.query("INSERT INTO cce_sessions(token_hash,user_id,expires_at) VALUES($1,$2,NOW()+($3::int*INTERVAL '1 day'))",[sessionHash(token),user.id,String(SESSION_DAYS)]);return sessionCookie(req,token,false);}
 
 async function geminiClient(){ if(!GEMINI_API_KEY)throw new Error('GEMINI_NOT_CONFIGURED'); const mod=await import('@google/genai'); return new mod.GoogleGenAI({apiKey:GEMINI_API_KEY}); }
+function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+function transientAiError(e){const s=String(e?.message||e||'').toLowerCase();return /503|unavailable|high demand|overload|capacity|429|resource_exhausted|rate limit|timeout|deadline|500|502|504/.test(s);}
+function friendlyAiError(e){const s=String(e?.message||e||'');if(/503|unavailable|high demand|overload|capacity/i.test(s))return 'Gemini is temporarily busy (503). Automatic retries and fallback models were attempted.';if(/429|resource_exhausted|rate limit|quota/i.test(s))return 'Gemini rate/quota limit reached (429).';if(/api key|403|401|permission/i.test(s))return 'Gemini API key/permission error.';return s.slice(0,400)||'Unknown Gemini error';}
+async function runGeminiInteraction({input,models=GEMINI_MODELS,tools,attempts=3}){
+  const ai=await geminiClient(); let lastErr=null, tried=[];
+  for(const model of [...new Set(models.filter(Boolean))]){
+    for(let attempt=0;attempt<attempts;attempt++){
+      try{
+        const opts={model,input}; if(tools)opts.tools=tools;
+        const t0=Date.now(); const interaction=await ai.interactions.create(opts);
+        return {interaction,model,latencyMs:Date.now()-t0,tried};
+      }catch(e){lastErr=e;tried.push({model,attempt:attempt+1,error:friendlyAiError(e)});if(!transientAiError(e))break;if(attempt<attempts-1)await sleep((AI_RETRY_DELAYS_MS[attempt]||4000)+Math.floor(Math.random()*350));}
+    }
+  }
+  const err=new Error(friendlyAiError(lastErr)); err.tried=tried; throw err;
+}
 function parseJsonText(text){
   let s=String(text||'').trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'');
   try{return JSON.parse(s);}catch(_){const a=s.indexOf('{'),b=s.lastIndexOf('}');if(a>=0&&b>a)return JSON.parse(s.slice(a,b+1));throw new Error('AI returned invalid JSON');}
@@ -114,14 +150,15 @@ async function getSourceAnalysis(force=false){
   // then cached and reused. Until the first refresh, use the curated fallback pattern map.
   if(!force||!GEMINI_API_KEY)return FALLBACK_ANALYSIS;
   try{
-    const ai=await geminiClient();
     const pageText=EXAM_SOURCE_PAGES.join('\n');
     const input=[
-      {type:'text',text:`Analyze GSSSB CCE previous-paper patterns for study planning. Read these public pages with URL context:\n${pageText}\nAlso analyze the attached public YouTube paper-solution videos. Do NOT reproduce long/exact copyrighted question text. Extract only recurring topic types, common traps, difficulty, and question patterns. Return STRICT JSON only: {"summary":"...","highFrequency":{"reasoning":[],"quant":[],"gujarati":[],"english":[],"ga":[]},"recurringPatterns":[{"subject":"","topic":"","pattern":"","priority":1}],"videoInsights":[{"url":"","insight":""}]}`},
+      {type:'text',text:`Analyze GSSSB CCE PRELIM previous-paper patterns for 2026 study planning. Prioritize 2024 CCE prelim all-shift evidence; use the 2026 syllabus only to map old recurring patterns into the new 2026 scope. Read these public pages with URL context:\n${pageText}\nAlso analyze the attached public YouTube paper-solution videos. Do NOT reproduce long/exact copyrighted question text. Extract only recurring topic types, common traps, difficulty, and question patterns. Return STRICT JSON only: {"summary":"...","highFrequency":{"reasoning":[],"quant":[],"gujarati":[],"english":[],"ga":[]},"recurringPatterns":[{"subject":"","topic":"","pattern":"","priority":1}],"videoInsights":[{"url":"","insight":""}]}`},
       ...EXAM_SOURCE_VIDEOS.slice(0,3).map(uri=>({type:'video',uri}))
     ];
-    const interaction=await ai.interactions.create({model:GEMINI_VIDEO_MODEL,input,tools:[{type:'url_context'}]});
+    const run=await runGeminiInteraction({input,models:[GEMINI_VIDEO_MODEL,...GEMINI_MODELS],tools:[{type:'url_context'}],attempts:2});
+    const interaction=run.interaction;
     const data=parseJsonText(interaction.outputText||interaction.output_text||'');
+    data.modelUsed=run.model; data.generatedAt=new Date().toISOString();
     data.sourcePages=EXAM_SOURCE_PAGES; data.sourceVideos=EXAM_SOURCE_VIDEOS;
     if(pool)await pool.query("INSERT INTO cce_source_analysis(analysis_key,data,updated_at) VALUES('gsssb-cce-pyq-v1',$1::jsonb,NOW()) ON CONFLICT(analysis_key) DO UPDATE SET data=EXCLUDED.data,updated_at=NOW()",[JSON.stringify(data)]);
     return data;
@@ -144,37 +181,57 @@ function normalizeAiQuestion(q,idx,subject,topic){
     videoSearchTerms:String(q.videoSearchTerms||`${topic} GSSSB CCE Gujarati explanation`).trim().slice(0,220)
   };
 }
-async function generateAdaptiveQuestions({subject,topic,setNo,mistakes,analysis,currentAffairs}){
-  const ai=await geminiClient();
+function canonicalText(s){return String(s||'').toLowerCase().normalize('NFKC').replace(/[0-9]+/g,'#').replace(/[^\p{L}\p{N}#]+/gu,' ').replace(/\s+/g,' ').trim();}
+function questionSignature(q){return crypto.createHash('sha1').update(canonicalText(q?.text||q)).digest('hex').slice(0,16);}
+async function previousQuestionSignals(userId,subject,topic,limitSets=12){
+  if(!pool)return {signatures:[],examples:[]};
+  const {rows}=await pool.query('SELECT questions FROM cce_topic_sets WHERE user_id=$1 AND subject=$2 AND topic=$3 ORDER BY set_no DESC LIMIT $4',[userId,subject,topic,limitSets]);
+  const signatures=[],examples=[];for(const r of rows){for(const q of (Array.isArray(r.questions)?r.questions:[])){signatures.push(questionSignature(q));if(examples.length<80)examples.push(String(q.text||'').slice(0,180));}}
+  return {signatures:[...new Set(signatures)].slice(0,1500),examples};
+}
+function batchPrompt({subject,topic,setNo,batchNo,count,mistakes,analysis,currentAffairs,excludeExamples,mode='adaptive'}){
   const hasMistakes=mistakes.length>0;
-  const targetMix=hasMistakes?{mistakeVariants:55,pyqPattern:25,fresh:20}:{mistakeVariants:0,pyqPattern:40,fresh:60};
-  const caContext=(subject==='ga'&&topic==='Current Affairs • PIB')?currentAffairs.slice(0,18).map(x=>({text:x.text,answer:x.options?.[x.answer],sourceUrl:x.sourceUrl})):[];
-  const prompt=`You generate exam-practice MCQs for GSSSB CCE prelims. Create EXACTLY 100 ORIGINAL questions for subject=${subject}, topic=${topic}, adaptive set #${setNo}.
-Language: Gujarati for reasoning, quantitative aptitude, GA and Gujarati; English for English subject, with Gujarati explanation allowed.
-Question design: four options only. answer must be 0,1,2,3. Avoid ambiguous facts. For maths/reasoning, ensure calculations are correct. For static facts use stable reputable facts. Never copy long/verbatim questions from past papers or videos; imitate recurring exam PATTERNS only.
-Adaptive mix target: ${targetMix.mistakeVariants}% new variants targeting prior mistakes/weak concepts; ${targetMix.pyqPattern}% PYQ-style recurring patterns; ${targetMix.fresh}% fresh coverage. If prior mistake list is empty, use 40% PYQ-style + 60% fresh.
-Every question must include a concise step-by-step explanation, difficulty, pyqPattern boolean, source label, optional sourceUrl, and videoSearchTerms suitable for YouTube search.
-Do not repeat the same numeric values/wording. Ensure all 100 questions are distinct.
-Prior mistakes (concept signals only): ${JSON.stringify(mistakes)}
-Previous-paper/video pattern analysis: ${JSON.stringify(analysis).slice(0,14000)}
-Current-affairs context when relevant: ${JSON.stringify(caContext).slice(0,10000)}
-Return STRICT JSON only with this shape: {"questions":[{"text":"","options":["","","",""],"answer":0,"explanation":"Step 1... Step 2...","difficulty":"easy|medium|hard","pyqPattern":true,"source":"","sourceUrl":"","videoSearchTerms":""}],"mix":{"mistakeVariants":0,"pyqPattern":0,"fresh":0},"note":""}`;
-  const interaction=await ai.interactions.create({model:GEMINI_MODEL,input:prompt});
-  const parsed=parseJsonText(interaction.outputText||interaction.output_text||'');
-  let raw=Array.isArray(parsed.questions)?parsed.questions:[];
-  const clean=[];const seen=new Set();
-  for(let i=0;i<raw.length;i++){const q=normalizeAiQuestion(raw[i],i,subject,topic);if(!q)continue;const sig=q.text.toLowerCase().replace(/\s+/g,' ').slice(0,240);if(seen.has(sig))continue;seen.add(sig);clean.push(q);if(clean.length===100)break;}
-  if(clean.length<100)throw new Error(`AI returned only ${clean.length} valid unique questions`);
-  return {questions:clean,mix:parsed.mix||targetMix,note:String(parsed.note||'Adaptive 100 generated from weak areas + PYQ-style patterns.')};
+  const targetMix=mode==='pyq'?{mistakeVariants:hasMistakes?25:0,pyqPattern:75,fresh:hasMistakes?0:25}:(hasMistakes?{mistakeVariants:55,pyqPattern:25,fresh:20}:{mistakeVariants:0,pyqPattern:40,fresh:60});
+  const caContext=(subject==='ga'&&/Current Affairs/i.test(topic))?currentAffairs.slice(0,24).map(x=>({text:x.text,answer:x.options?.[x.answer],sourceUrl:x.sourceUrl})):[];
+  return {targetMix,prompt:`You are a careful GSSSB CCE 2026 PRELIM question setter. Generate EXACTLY ${count} ORIGINAL MCQs for subject=${subject}, topic=${topic}, set #${setNo}, batch #${batchNo}.\nOFFICIAL 2026 context: advertisement 378/2025-26; prelim 150 questions, 120 minutes, -0.25 wrong; subject distribution Reasoning 60, Quant 30, GA/Current Affairs 30, Gujarati 15, English 15. Use this 2026 syllabus and level map: ${JSON.stringify(CCE_2026_SYLLABUS)}\nLanguage: Gujarati for Reasoning, Quant, GA and Gujarati; English for English. Explanation may include simple Gujarati.\nDifficulty must feel like actual competitive exam: about 25% easy, 55% medium, 20% hard; use plausible distractors and common traps. Avoid toy/repetitive templates. Maths/reasoning calculations must be internally verified. Static facts must be stable and reputable; current affairs only from supplied official/reputable context.\nOld-paper rule: learn recurring pattern/frequency/traps, NEVER reproduce a long/verbatim copyrighted past-paper question. pyqPattern=true means same pattern, new wording/data.\nAdaptive target for this request: ${targetMix.mistakeVariants}% weak-area variants, ${targetMix.pyqPattern}% PYQ-style patterns, ${targetMix.fresh}% fresh coverage.\nIMPORTANT ANTI-REPEAT: Do not create questions substantially similar to these previously seen examples: ${JSON.stringify(excludeExamples.slice(-80))}. Also diversify names, numbers, sentence structures and answer positions.\nPrior mistakes signals: ${JSON.stringify(mistakes).slice(0,9000)}\nOld-paper/video analysis: ${JSON.stringify(analysis).slice(0,12000)}\nCurrent-affairs context: ${JSON.stringify(caContext).slice(0,10000)}\nEvery item: text, exactly 4 options, answer index 0-3, concise step-by-step explanation, difficulty, pyqPattern, source, sourceUrl if factual, videoSearchTerms. Return STRICT JSON only: {"questions":[{"text":"","options":["","","",""],"answer":0,"explanation":"","difficulty":"easy|medium|hard","pyqPattern":true,"source":"","sourceUrl":"","videoSearchTerms":""}],"note":""}`};
+}
+async function generateAdaptiveQuestions({subject,topic,setNo,mistakes,analysis,currentAffairs,excludeExamples=[],mode='adaptive'}){
+  const clean=[],seen=new Set(excludeExamples.map(x=>questionSignature(x))),notes=[],modelsUsed=[];
+  for(let batchNo=1;batchNo<=4;batchNo++){
+    let need=100-clean.length;if(need<=0)break; const count=Math.min(25,need); let batchClean=[];
+    for(let repair=0;repair<3 && batchClean.length<count;repair++){
+      const bp=batchPrompt({subject,topic,setNo,batchNo,count:count-batchClean.length,mistakes,analysis,currentAffairs,excludeExamples:[...excludeExamples,...clean.map(q=>q.text),...batchClean.map(q=>q.text)],mode});
+      const run=await runGeminiInteraction({input:bp.prompt,models:GEMINI_MODELS,attempts:3}); modelsUsed.push(run.model);
+      const parsed=parseJsonText(run.interaction.outputText||run.interaction.output_text||''); notes.push(String(parsed.note||''));
+      const raw=Array.isArray(parsed.questions)?parsed.questions:[];
+      for(let i=0;i<raw.length;i++){
+        const q=normalizeAiQuestion(raw[i],clean.length+batchClean.length+i,subject,topic);if(!q)continue;
+        const sig=questionSignature(q); if(seen.has(sig))continue; seen.add(sig); batchClean.push(q); if(batchClean.length===count)break;
+      }
+    }
+    clean.push(...batchClean); if(batchClean.length<count)throw new Error(`AI produced only ${clean.length}/100 unique questions after duplicate filtering.`);
+  }
+  if(clean.length!==100)throw new Error(`AI returned only ${clean.length} valid unique questions`);
+  const hasMistakes=mistakes.length>0;const targetMix=mode==='pyq'?{mistakeVariants:hasMistakes?25:0,pyqPattern:75,fresh:hasMistakes?0:25}:(hasMistakes?{mistakeVariants:55,pyqPattern:25,fresh:20}:{mistakeVariants:0,pyqPattern:40,fresh:60});
+  return {questions:clean,mix:targetMix,note:notes.filter(Boolean).join(' ').slice(0,800)||'2026 adaptive set generated with historical de-duplication.',modelUsed:[...new Set(modelsUsed)].join(' → ')};
+}
+async function generate2026Mock({userId,analysis,currentAffairs}){
+  const spec=[['reasoning','2026 Mixed Reasoning',60],['quant','2026 Mixed Quantitative Aptitude',30],['ga','2026 General Awareness & Current Affairs',30],['gujarati','2026 Gujarati Language',15],['english','2026 English Language',15]];
+  const all=[];const modelUsed=[];
+  for(const [subject,topic,count] of spec){
+    let remaining=count,batchNo=1,seen=new Set(all.map(questionSignature));
+    while(remaining>0){const n=Math.min(20,remaining);const bp=batchPrompt({subject,topic,setNo:1,batchNo,count:n,mistakes:[],analysis,currentAffairs,excludeExamples:all.map(q=>q.text),mode:'pyq'});const run=await runGeminiInteraction({input:bp.prompt,models:GEMINI_MODELS,attempts:3});modelUsed.push(run.model);const parsed=parseJsonText(run.interaction.outputText||run.interaction.output_text||'');let added=0;for(const raw of (Array.isArray(parsed.questions)?parsed.questions:[])){const q=normalizeAiQuestion(raw,all.length+added,subject,topic);if(!q)continue;const sig=questionSignature(q);if(seen.has(sig))continue;seen.add(sig);all.push(q);added++;if(added===n)break;}if(added<n)throw new Error(`Could not create enough unique ${subject} mock questions.`);remaining-=added;batchNo++;}
+  }
+  if(all.length!==150)throw new Error(`Mock generation returned ${all.length}/150 questions.`);return {questions:all,modelUsed:[...new Set(modelUsed)].join(' → ')};
 }
 
 async function handleApi(req,res,u){
-  if(u.pathname==='/health')return json(req,res,200,{ok:true,service:'cce-adaptive100',database:!!pool,ai:!!GEMINI_API_KEY,model:GEMINI_MODEL});
+  if(u.pathname==='/health')return json(req,res,200,{ok:true,service:'cce-adaptive100-v4',database:!!pool,aiConfigured:!!GEMINI_API_KEY,models:GEMINI_MODELS});
   if(u.pathname==='/api/current-affairs'&&req.method==='GET'){try{const data=await getCurrentAffairs();return json(req,res,200,{ok:true,count:data.length,items:data});}catch(_){return json(req,res,200,{ok:false,count:0,items:[],error:'PIB feed unavailable; offline bank is active.'});}}
   if(!u.pathname.startsWith('/api/'))return false;
   if(!sameOrigin(req))return json(req,res,403,{ok:false,error:'Origin rejected'});
 
-  if(u.pathname==='/api/auth/me'&&req.method==='GET'){if(!pool)return json(req,res,200,{ok:true,database:false,user:null,ai:!!GEMINI_API_KEY});const user=await getAuth(req);return json(req,res,200,{ok:true,database:true,ai:!!GEMINI_API_KEY,model:GEMINI_MODEL,user:user?{id:String(user.id),email:user.email,name:user.display_name}:null});}
+  if(u.pathname==='/api/auth/me'&&req.method==='GET'){if(!pool)return json(req,res,200,{ok:true,database:false,user:null,ai:!!GEMINI_API_KEY,model:GEMINI_MODEL,models:GEMINI_MODELS});const user=await getAuth(req);return json(req,res,200,{ok:true,database:true,ai:!!GEMINI_API_KEY,model:GEMINI_MODEL,models:GEMINI_MODELS,user:user?{id:String(user.id),email:user.email,name:user.display_name}:null});}
   if(u.pathname==='/api/auth/register'&&req.method==='POST'){
     if(!pool)return json(req,res,503,{ok:false,error:'Cloud database is not configured. Add DATABASE_URL on Render.'});if(rateLimited(req,'register',8))return json(req,res,429,{ok:false,error:'Too many attempts. Try again later.'});
     const body=await readJson(req,64*1024),email=String(body.email||'').trim().toLowerCase(),password=String(body.password||''),name=sanitizeName(body.name);if(!validEmail(email))return json(req,res,400,{ok:false,error:'Enter a valid email address.'});if(password.length<8||password.length>128)return json(req,res,400,{ok:false,error:'Password must be 8–128 characters.'});
@@ -190,22 +247,33 @@ async function handleApi(req,res,u){
 
   if(u.pathname==='/api/adaptive/status'&&req.method==='GET'){
     const user=pool?await getAuth(req):null;let sourceUpdatedAt=null;if(pool){const {rows}=await pool.query("SELECT updated_at FROM cce_source_analysis WHERE analysis_key='gsssb-cce-pyq-v1'");sourceUpdatedAt=rows[0]?.updated_at||null;}
-    return json(req,res,200,{ok:true,aiConfigured:!!GEMINI_API_KEY,database:!!pool,loggedIn:!!user,model:GEMINI_MODEL,sourceUpdatedAt,sourcePages:EXAM_SOURCE_PAGES,sourceVideos:EXAM_SOURCE_VIDEOS});
+    return json(req,res,200,{ok:true,aiConfigured:!!GEMINI_API_KEY,database:!!pool,loggedIn:!!user,model:GEMINI_MODEL,models:GEMINI_MODELS,sourceUpdatedAt,sourcePages:EXAM_SOURCE_PAGES,sourceVideos:EXAM_SOURCE_VIDEOS,syllabus:CCE_2026_SYLLABUS});
+  }
+  if(u.pathname==='/api/adaptive/test-ai'&&req.method==='POST'){
+    if(!GEMINI_API_KEY)return json(req,res,503,{ok:false,configured:false,state:'not-configured',error:'GEMINI_API_KEY is missing on Render.'});
+    const started=Date.now();try{const run=await runGeminiInteraction({input:'Return exactly this JSON and nothing else: {"ok":true}',models:GEMINI_MODELS,attempts:2});return json(req,res,200,{ok:true,configured:true,state:'connected',modelUsed:run.model,latencyMs:Date.now()-started,fallbackUsed:run.model!==GEMINI_MODEL,tried:run.tried});}catch(e){return json(req,res,503,{ok:false,configured:true,state:'busy-or-error',error:friendlyAiError(e),latencyMs:Date.now()-started,tried:e.tried||[]});}
   }
   if(u.pathname==='/api/adaptive/analyze-sources'&&req.method==='POST'){
     if(!pool)return json(req,res,503,{ok:false,error:'Database required'});const user=await getAuth(req);if(!user)return json(req,res,401,{ok:false,error:'Login required'});if(!GEMINI_API_KEY)return json(req,res,503,{ok:false,error:'Add GEMINI_API_KEY on Render to enable online PYQ/video analysis.'});if(rateLimited(req,'analyze',3,60*60*1000))return json(req,res,429,{ok:false,error:'Source analysis refresh is limited. Try later.'});const data=await getSourceAnalysis(true);return json(req,res,200,{ok:true,data});
   }
   if(u.pathname==='/api/adaptive/set'&&req.method==='POST'){
     if(!pool)return json(req,res,503,{ok:false,error:'Login/cloud database required for adaptive sets.'});const user=await getAuth(req);if(!user)return json(req,res,401,{ok:false,error:'Login required for adaptive 100.'});if(!GEMINI_API_KEY)return json(req,res,503,{ok:false,error:'AI is not configured. Add GEMINI_API_KEY on Render.'});if(rateLimited(req,'adaptive-set',12,60*60*1000))return json(req,res,429,{ok:false,error:'Too many AI set-generation requests. Resume an existing set or try later.'});
-    const body=await readJson(req,128*1024),subject=String(body.subject||'').trim(),topic=String(body.topic||'').trim();if(!validSimple(subject,40)||!validSimple(topic,120))return json(req,res,400,{ok:false,error:'Invalid subject/topic'});
+    const body=await readJson(req,128*1024),subject=String(body.subject||'').trim(),topic=String(body.topic||'').trim(),mode=body.mode==='pyq'?'pyq':'adaptive';if(!validSimple(subject,40)||!validSimple(topic,160))return json(req,res,400,{ok:false,error:'Invalid subject/topic'});
     const latest=(await pool.query('SELECT * FROM cce_topic_sets WHERE user_id=$1 AND subject=$2 AND topic=$3 ORDER BY set_no DESC LIMIT 1',[user.id,subject,topic])).rows[0];
     if(latest&&latest.status==='active')return json(req,res,200,{ok:true,resumed:true,set:{id:String(latest.id),setNo:latest.set_no,dateKey:latest.date_key,questions:latest.questions,sourceMix:latest.source_mix,status:latest.status}});
     const setNo=latest?latest.set_no+1:1;
     const history=(await pool.query("SELECT questions,summary FROM cce_topic_sets WHERE user_id=$1 AND subject=$2 AND topic=$3 AND status='completed' ORDER BY set_no DESC LIMIT 4",[user.id,subject,topic])).rows;
-    const mistakes=compactMistakes(history,subject,topic),analysis=await getSourceAnalysis(false),currentAffairs=await getCurrentAffairs().catch(()=>[]);
-    let generated;try{generated=await generateAdaptiveQuestions({subject,topic,setNo,mistakes,analysis,currentAffairs});}catch(e){console.error('Adaptive generation:',e);return json(req,res,502,{ok:false,error:`AI question generation failed: ${e.message}. You can retry; existing progress is safe.`});}
-    const dateKey=todayIndia();const {rows}=await pool.query('INSERT INTO cce_topic_sets(user_id,subject,topic,set_no,date_key,questions,source_mix,status) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,\'active\') RETURNING id',[user.id,subject,topic,setNo,dateKey,JSON.stringify(generated.questions),JSON.stringify({mix:generated.mix,note:generated.note,weakSignals:mistakes.length,analysisSource:'PYQ pages + public YouTube paper solutions'})]);
-    return json(req,res,201,{ok:true,resumed:false,set:{id:String(rows[0].id),setNo,dateKey,questions:generated.questions,sourceMix:{mix:generated.mix,note:generated.note,weakSignals:mistakes.length},status:'active'}});
+    const mistakes=compactMistakes(history,subject,topic),analysis=await getSourceAnalysis(false),currentAffairs=await getCurrentAffairs().catch(()=>[]),prior=await previousQuestionSignals(user.id,subject,topic,14);
+    let generated;try{generated=await generateAdaptiveQuestions({subject,topic,setNo,mistakes,analysis,currentAffairs,excludeExamples:prior.examples,mode});}catch(e){console.error('Adaptive generation:',e);return json(req,res,503,{ok:false,error:`${friendlyAiError(e)} Please press Retry. Your existing progress is safe.`,details:e.tried||[]});}
+    const dateKey=todayIndia();const {rows}=await pool.query('INSERT INTO cce_topic_sets(user_id,subject,topic,set_no,date_key,questions,source_mix,status) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,\'active\') RETURNING id',[user.id,subject,topic,setNo,dateKey,JSON.stringify(generated.questions),JSON.stringify({mix:generated.mix,note:generated.note,weakSignals:mistakes.length,mode,modelUsed:generated.modelUsed,duplicateHistoryChecked:prior.signatures.length,analysisSource:'2026 syllabus + PYQ pages + public YouTube paper solutions'})]);
+    return json(req,res,201,{ok:true,resumed:false,set:{id:String(rows[0].id),setNo,dateKey,questions:generated.questions,sourceMix:{mix:generated.mix,note:generated.note,weakSignals:mistakes.length,mode,modelUsed:generated.modelUsed,duplicateHistoryChecked:prior.signatures.length},status:'active'}});
+  }
+  if(u.pathname==='/api/old-papers/analysis'&&req.method==='GET'){
+    const data=await getSourceAnalysis(false);return json(req,res,200,{ok:true,data,sources:{pages:EXAM_SOURCE_PAGES,videos:EXAM_SOURCE_VIDEOS},syllabus:CCE_2026_SYLLABUS});
+  }
+  if(u.pathname==='/api/adaptive/mock2026'&&req.method==='POST'){
+    if(!pool)return json(req,res,503,{ok:false,error:'Database required'});const user=await getAuth(req);if(!user)return json(req,res,401,{ok:false,error:'Login required'});if(!GEMINI_API_KEY)return json(req,res,503,{ok:false,error:'GEMINI_API_KEY is not configured.'});if(rateLimited(req,'mock2026',3,60*60*1000))return json(req,res,429,{ok:false,error:'AI mock generation is limited to protect API quota. Try later.'});
+    try{const analysis=await getSourceAnalysis(false),currentAffairs=await getCurrentAffairs().catch(()=>[]),mock=await generate2026Mock({userId:user.id,analysis,currentAffairs});return json(req,res,200,{ok:true,questions:mock.questions,modelUsed:mock.modelUsed,pattern:CCE_2026_SYLLABUS.pattern,note:'Fresh 2026-style 150-question simulation. Questions are original, not leaked/actual future exam questions.'});}catch(e){return json(req,res,503,{ok:false,error:friendlyAiError(e),details:e.tried||[]});}
   }
   if(u.pathname==='/api/adaptive/complete'&&req.method==='POST'){
     if(!pool)return json(req,res,503,{ok:false,error:'Database required'});const user=await getAuth(req);if(!user)return json(req,res,401,{ok:false,error:'Login required'});const body=await readJson(req,512*1024),setId=String(body.setId||''),results=Array.isArray(body.results)?body.results:[];if(!/^\d+$/.test(setId))return json(req,res,400,{ok:false,error:'Invalid set ID'});

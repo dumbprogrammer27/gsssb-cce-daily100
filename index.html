@@ -15,7 +15,7 @@
         <h1>CCE Daily 100</h1>
       </div>
       <div class="header-actions">
-        <span id="cloudStatus" class="cloud-status">Guest • local progress</span>
+        <span id="cloudStatus" class="cloud-status">Guest • local progress</span><span id="apiBadge" class="api-badge checking"><i></i><span>AI checking</span></span>
         <button class="ghost" id="authBtn">Login / Sign up</button>
         <button class="ghost hidden" id="logoutBtn">Logout</button>
         <button class="ghost" id="themeBtn" aria-label="Toggle theme">◐</button>
@@ -30,7 +30,7 @@
         <p>Job સાથે focused MCQ practice. Topic-wise Adaptive 100: 100/100 complete પછી જ next 100 unlock થાય, અને wrong answers પરથી next set વધુ targeted બને.</p>
         <div class="hero-actions">
           <button class="primary" id="startDaily">Start Daily 100</button>
-          <button class="secondary" id="startMock">Full 150 Mock</button>
+          <button class="secondary" id="startMock">Full 150 Mock</button><button class="secondary ai-mock" id="startAiMock">AI 2026 Real Mock</button>
         </div>
       </div>
       <div class="stats glass">
@@ -46,6 +46,7 @@
       <button class="tab" data-view="subjects">Subjects</button>
       <button class="tab" data-view="progress">My Progress</button>
       <button class="tab" data-view="wrong">Wrong Revision</button>
+      <button class="tab" data-view="oldpapers">Old Papers</button>
       <button class="tab" data-view="sources">Sources</button>
     </nav>
 
@@ -120,13 +121,24 @@
         <div id="wrongList" class="wrong-list"></div>
       </section>
 
+
+      <section id="oldpapersView" class="view">
+        <div class="section-head"><div><div class="eyebrow">PYQ PATTERN LAB</div><h2>Old Papers → 2026 Pattern Practice</h2><p class="muted">Previous-paper sources and solution videos are analyzed for recurring topics, traps and difficulty. The site creates fresh original questions from those patterns.</p></div><button class="primary" id="refreshOldPapers">Analyze old papers now</button></div>
+        <div class="oldpaper-grid">
+          <article class="glass oldpaper-summary"><div class="eyebrow">ANALYSIS STATUS</div><h3 id="oldPaperSummary">Loading saved analysis…</h3><div id="oldPaperPatterns" class="pattern-list"></div></article>
+          <article class="glass oldpaper-summary"><div class="eyebrow">2026 OFFICIAL SHAPE</div><h3>150 Q • 120 min</h3><div class="exam-shape"><span>Reasoning <b>60</b></span><span>Quant <b>30</b></span><span>GA/CA <b>30</b></span><span>Gujarati <b>15</b></span><span>English <b>15</b></span></div><button class="secondary full" id="oldPaperMockBtn">Generate AI 2026 Real Mock</button></article>
+        </div>
+        <div class="glass oldpaper-panel"><div class="section-head compact"><div><div class="eyebrow">TOPIC-WISE PYQ STYLE</div><h3>Create 100 from old-paper patterns</h3></div></div><div id="oldPaperTopics" class="old-topic-grid"></div></div>
+        <div class="glass oldpaper-panel"><div class="section-head compact"><div><div class="eyebrow">SOURCE LINKS</div><h3>Configured previous-paper sources</h3></div></div><div id="oldPaperSources" class="source-links"></div></div>
+      </section>
+
       <section id="sourcesView" class="view">
         <div class="sources glass">
           <h2>Trusted source setup</h2>
           <p>Current affairs official PIB RSS પરથી sync થાય છે. AI modeમાં previous-paper portals + public YouTube paper-solution videosના recurring patterns analyze કરીને original adaptive MCQs બનાવવામાં આવે છે.</p>
           <div class="source-row"><strong>PIB RSS</strong><span id="syncStatus">Checking…</span><button class="ghost" id="syncBtn">Sync now</button></div>
           <div class="source-row"><strong>CCE pattern</strong><span>150 marks • 120 min • −0.25 wrong</span></div>
-          <div class="source-row"><strong>AI Adaptive Engine</strong><span id="aiStatus">Checking…</span><button class="ghost" id="refreshAnalysisBtn">Refresh PYQ/video analysis</button></div>
+          <div class="source-row"><strong>Gemini API</strong><span id="aiStatus">Checking…</span><button class="ghost" id="testAiBtn">Test connection</button></div><div class="source-row"><strong>PYQ Analyzer</strong><span id="pyqStatus">Saved analysis is reused until refreshed.</span><button class="ghost" id="refreshAnalysisBtn">Refresh PYQ/video analysis</button></div>
           <div class="source-row"><strong>Adaptive rule</strong><span>Each topic: 100/100 required → next set unlocks. Wrong concepts receive extra weight in the next set.</span></div>
           <div class="source-row"><strong>Cloud progress</strong><span id="privacyStatus">Guest mode: progress is also kept locally in this browser.</span></div>
           <div class="source-row"><strong>Passwords</strong><span>Hashed on the server; the browser never stores your password.</span></div>

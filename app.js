@@ -2,7 +2,7 @@
   const $ = s => document.querySelector(s);
   const $$ = s => [...document.querySelectorAll(s)];
   const KEY='cceDaily100StateV3', LEGACY_KEY='cceDaily100StateV2';
-  let currentUser=null, cloudAvailable=false, aiAvailable=false, aiModel='', syncTimer=null, currentAffairs=[], quiz=null, timerHandle=null, authMode='login', lastNextAction=null;
+  let currentUser=null, cloudAvailable=false, aiAvailable=false, aiModel='', aiModels=[], aiLiveState='unknown', oldPaperData=null, syncTimer=null, currentAffairs=[], quiz=null, timerHandle=null, authMode='login', lastNextAction=null;
 
   function defaultState(){return {completed:0,correct:0,wrong:0,skipped:0,net:0,wrongBank:[],theme:'dark',sets:0,topicStats:{},updatedAt:0,ownerUserId:null,adaptiveSessions:{},adaptiveDaily:{}};}
   function normalizeState(raw){
@@ -61,20 +61,27 @@
     $('#emptyState').innerHTML='<h2>100 questions. One clear target.</h2><p>Topic practiceમાં દરેક active topic set 100 questionsનો છે. 100/100 complete થયા પછી next adaptive 100 unlock થાય છે.</p><button class="primary" id="emptyStart">Start today’s mixed 100</button>';
     $('#emptyStart').onclick=startDaily;
   }
-  async function startTopic(subject,topic){
+  async function startTopic(subject,topic,opts={}){
     if(currentUser&&aiAvailable){
-      showLoading(`Building ${topic} • Adaptive 100`,`PYQ/video patterns + your previous mistakes પરથી set તૈયાર થઈ રહ્યો છે. Existing active set હશે તો એ જ resume થશે.`);
+      showLoading(`Building ${topic} • ${opts.pyqFocus?'PYQ Pattern':'Adaptive'} 100`,`2026 syllabus + old-paper patterns + duplicate filter + your mistakes પરથી set તૈયાર થઈ રહ્યો છે. Gemini busy હોય તો server automatic retry/fallback કરશે.`);
       try{
-        const data=await api('/api/adaptive/set',{method:'POST',body:JSON.stringify({subject,topic})});
+        const data=await api('/api/adaptive/set',{method:'POST',body:JSON.stringify({subject,topic,mode:opts.pyqFocus?'pyq':'adaptive'})});
         resetEmpty(); const s=data.set, saved=state.adaptiveSessions[String(s.id)]||null;
-        startQuiz(s.questions,`${subjectName(subject)} • ${topic} • Adaptive 100 #${s.setNo}`,0,'adaptive',{setId:String(s.id),setNo:s.setNo,subject,topic,sourceMix:s.sourceMix,saved});
+        startQuiz(s.questions,`${subjectName(subject)} • ${topic} • ${opts.pyqFocus?'PYQ Pattern':'Adaptive'} 100 #${s.setNo}`,0,'adaptive',{setId:String(s.id),setNo:s.setNo,subject,topic,sourceMix:s.sourceMix,saved});
         return;
       }catch(err){
-        resetEmpty(); alert(`${err.message}\n\nLocal fallback 100 will open now.`);
+        resetEmpty(); alert(`${err.message}\n\nAI set could not be created now. A local fallback will open; it may be less exam-like. Use the AI status button and retry later.`);
       }
     } else if(!currentUser) alert('Adaptive AI + cross-device resume માટે login કરો. હમણાં local 100 open થશે.');
     else if(!aiAvailable) alert('Renderમાં GEMINI_API_KEY add થયા પછી AI-adaptive sets enable થશે. હમણાં local 100 open થશે.');
     switchView('practice'); startQuiz(CCE.generateTopic(subject,topic,100,currentAffairs),`${subjectName(subject)} • ${topic} • Local 100`,0,'topic');
+  }
+  async function startAiMock(){
+    if(!currentUser){alert('AI 2026 Real Mock માટે login જરૂરી છે.');openAuth();return;}
+    if(!aiAvailable){alert('GEMINI_API_KEY configured નથી. Render Environmentમાં key add કરો.');return;}
+    showLoading('Building AI 2026 Real Mock','150 fresh questions બનાવી રહ્યા છીએ: Reasoning 60 • Quant 30 • GA/CA 30 • Gujarati 15 • English 15. Automatic retry/fallback enabled.');
+    try{const d=await api('/api/adaptive/mock2026',{method:'POST',body:'{}'});resetEmpty();startQuiz(d.questions,`AI 2026 Real Mock • ${d.modelUsed||aiModel}`,120*60,'mock');}
+    catch(e){resetEmpty();alert(`AI mock generation failed: ${e.message}`);switchView('practice');}
   }
   function startWrong(){if(!state.wrongBank.length){alert('Wrong-answer bank is empty. First solve some questions.');return;}switchView('practice');startQuiz(state.wrongBank.map(x=>({...x})),'Wrong Revision',0,'wrong');}
 
@@ -155,23 +162,41 @@
   async function loadCloudProgress(){
     if(!currentUser)return;try{const d=await api('/api/progress');if(d.hasProgress&&d.progress){const cloud=normalizeState(d.progress),local=state;if(String(local.ownerUserId||'')===String(currentUser.id)&&(local.updatedAt||0)>(cloud.updatedAt||0)){await saveCloud();}else state=cloud;}else{state.ownerUserId=String(currentUser.id);await saveCloud();}saveLocal(false);applyTheme();renderAllProgress();}catch(_){renderAllProgress();}
   }
-  async function initAuth(){try{const d=await api('/api/auth/me',{method:'GET',headers:{}});cloudAvailable=!!d.database;aiAvailable=!!d.ai;aiModel=d.model||'';currentUser=d.user||null;updateAuthUI();renderSourceStatus();if(currentUser)await loadCloudProgress();}catch(_){cloudAvailable=false;currentUser=null;updateAuthUI();}}
+  async function initAuth(){try{const d=await api('/api/auth/me',{method:'GET',headers:{}});cloudAvailable=!!d.database;aiAvailable=!!d.ai;aiModel=d.model||'';aiModels=Array.isArray(d.models)?d.models:[];currentUser=d.user||null;updateAuthUI();renderSourceStatus();if(currentUser)await loadCloudProgress();await checkAiConnection(false);await loadOldPapers();}catch(_){cloudAvailable=false;currentUser=null;updateAuthUI();}}
   function setAuthMode(mode){authMode=mode;const reg=mode==='register';$('#authTitle').textContent=reg?'Create account':'Login';$('#nameField').classList.toggle('hidden',!reg);$('#authSubmit').textContent=reg?'Create account':'Login';$('#authSwitch').textContent=reg?'Already have an account? Login':'Create a new account';$('#authPassword').autocomplete=reg?'new-password':'current-password';$('#authError').classList.add('hidden');}
   function openAuth(){setAuthMode('login');$('#authDialog').showModal();}
   $('#authBtn').onclick=openAuth;$('#closeAuth').onclick=()=>$('#authDialog').close();$('#authSwitch').onclick=()=>setAuthMode(authMode==='login'?'register':'login');
   $('#authForm').addEventListener('submit',async e=>{e.preventDefault();const btn=$('#authSubmit');btn.disabled=true;$('#authError').classList.add('hidden');try{const payload={email:$('#authEmail').value.trim(),password:$('#authPassword').value};if(authMode==='register')payload.name=$('#authName').value.trim();const data=await api(authMode==='register'?'/api/auth/register':'/api/auth/login',{method:'POST',body:JSON.stringify(payload)});currentUser=data.user;cloudAvailable=true;$('#authDialog').close();updateAuthUI();await initAuth();}catch(err){$('#authError').textContent=err.message;$('#authError').classList.remove('hidden');}finally{btn.disabled=false;}});
   $('#logoutBtn').onclick=async()=>{try{await api('/api/auth/logout',{method:'POST',body:'{}'});}catch(_){}currentUser=null;state=defaultState();saveLocal(false);applyTheme();renderAllProgress();updateAuthUI();};
 
+  function setApiBadge(state,label){const b=$('#apiBadge');if(!b)return;b.className=`api-badge ${state}`;b.querySelector('span').textContent=label;}
   function renderSourceStatus(){
-    const ai=$('#aiStatus');if(ai)ai.textContent=aiAvailable?`Enabled • ${aiModel||'Gemini Flash'} • adaptive 100 active`:'Not configured • add GEMINI_API_KEY on Render';const b=$('#refreshAnalysisBtn');if(b)b.disabled=!aiAvailable||!currentUser;
+    const ai=$('#aiStatus');if(ai){if(!aiAvailable)ai.textContent='Not configured • add GEMINI_API_KEY on Render';else if(aiLiveState==='connected')ai.textContent=`Connected • ${aiModel||'Gemini'} • retry/fallback ON`;else if(aiLiveState==='busy-or-error')ai.textContent='Configured, but Gemini is busy/error • fallback will retry';else ai.textContent=`Configured • ${aiModel||'Gemini'} • connection not tested`;}
+    const b=$('#refreshAnalysisBtn');if(b)b.disabled=!aiAvailable||!currentUser;const t=$('#testAiBtn');if(t)t.disabled=!aiAvailable;
   }
-  const refresh=$('#refreshAnalysisBtn');if(refresh)refresh.onclick=async()=>{refresh.disabled=true;refresh.textContent='Analyzing papers + videos…';try{const d=await api('/api/adaptive/analyze-sources',{method:'POST',body:'{}'});alert(`Source analysis refreshed.\n\n${d.data?.summary||'Done'}`);}catch(e){alert(e.message);}finally{refresh.textContent='Refresh PYQ/video analysis';renderSourceStatus();}};
+  async function checkAiConnection(show=true){
+    if(!aiAvailable){aiLiveState='not-configured';setApiBadge('off','AI not configured');renderSourceStatus();return;}
+    setApiBadge('checking','AI checking');try{const d=await api('/api/adaptive/test-ai',{method:'POST',body:'{}'});aiLiveState=d.state||'connected';aiModel=d.modelUsed||aiModel;setApiBadge('ok',`AI connected • ${aiModel}${d.fallbackUsed?' fallback':''}`);if(show)alert(`Gemini connected\nModel: ${aiModel}\nLatency: ${d.latencyMs} ms${d.fallbackUsed?'\nFallback model was used because primary was busy.':''}`);}catch(e){aiLiveState='busy-or-error';setApiBadge('busy','AI busy / retry');if(show)alert(e.message);}renderSourceStatus();
+  }
+  async function loadOldPapers(){
+    try{const d=await api('/api/old-papers/analysis',{method:'GET',headers:{}});oldPaperData=d;renderOldPapers();}catch(_){oldPaperData=null;renderOldPapers();}
+  }
+  function renderOldPapers(){
+    const sum=$('#oldPaperSummary'),patterns=$('#oldPaperPatterns'),sources=$('#oldPaperSources'),topics=$('#oldPaperTopics');if(!sum||!patterns||!sources||!topics)return;
+    const data=oldPaperData?.data||{};sum.textContent=data.summary||'No online analysis cached yet. Use “Analyze old papers now”.';const rp=Array.isArray(data.recurringPatterns)?data.recurringPatterns:[];
+    patterns.innerHTML=rp.length?rp.slice(0,12).map(x=>`<div class="pattern-item"><b>${escapeHtml(x.subject||'CCE')} • ${escapeHtml(x.topic||'')}</b><span>${escapeHtml(x.pattern||'Recurring pattern')}</span></div>`).join(''):'<div class="empty-inline">Refresh analysis to extract recurring patterns.</div>';
+    const pages=oldPaperData?.sources?.pages||[];const videos=oldPaperData?.sources?.videos||[];sources.innerHTML=[...pages.map((u,i)=>`<a href="${escapeAttr(u)}" target="_blank" rel="noopener">Paper/source ${i+1} ↗</a>`),...videos.map((u,i)=>`<a href="${escapeAttr(u)}" target="_blank" rel="noopener">Solution video ${i+1} ▶</a>`)].join('');
+    topics.innerHTML=CCE.SUBJECTS.map(s=>`<article><h4>${escapeHtml(s.name)}</h4><div>${(CCE.TOPICS[s.key]||[]).map(t=>`<button class="ghost pyq-topic" data-pyq-sub="${escapeAttr(s.key)}" data-pyq-topic="${escapeAttr(t)}">${escapeHtml(t)} • 100</button>`).join('')}</div></article>`).join('');$$('[data-pyq-sub]').forEach(b=>b.onclick=()=>startTopic(b.dataset.pyqSub,b.dataset.pyqTopic,{pyqFocus:true}));
+  }
+  const refresh=$('#refreshAnalysisBtn');if(refresh)refresh.onclick=async()=>{refresh.disabled=true;refresh.textContent='Analyzing papers + videos…';try{const d=await api('/api/adaptive/analyze-sources',{method:'POST',body:'{}'});oldPaperData={...(oldPaperData||{}),data:d.data};renderOldPapers();alert(`Source analysis refreshed.\n\n${d.data?.summary||'Done'}`);}catch(e){alert(e.message);}finally{refresh.textContent='Refresh PYQ/video analysis';renderSourceStatus();}};
+  const testAi=$('#testAiBtn');if(testAi)testAi.onclick=()=>checkAiConnection(true);
+  const refreshOld=$('#refreshOldPapers');if(refreshOld)refreshOld.onclick=async()=>{if(!currentUser){alert('Login first to run online paper/video analysis.');openAuth();return;}refreshOld.disabled=true;refreshOld.textContent='Analyzing…';try{const d=await api('/api/adaptive/analyze-sources',{method:'POST',body:'{}'});oldPaperData={...(oldPaperData||{}),data:d.data};renderOldPapers();}catch(e){alert(e.message);}finally{refreshOld.disabled=false;refreshOld.textContent='Analyze old papers now';}};
 
   function escapeHtml(s){return String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
   function escapeAttr(s){return escapeHtml(String(s??''));}
   function safeHttpUrl(v){try{const u=new URL(String(v||''));return ['http:','https:'].includes(u.protocol)?u.href:'';}catch(_){return '';}}
 
-  $('#startDaily').onclick=startDaily;$('#startMock').onclick=startMock;$('#notAttempted').onclick=notAttempt;$('#nextBtn').onclick=next;$('#finishBtn').onclick=()=>finishQuiz();$('#bookmarkBtn').onclick=toggleBookmark;$('#next100Btn').onclick=()=>lastNextAction&&lastNextAction();$('#reviewWrongBtn').onclick=startWrong;$('#startWrong').onclick=startWrong;
+  $('#startDaily').onclick=startDaily;$('#startMock').onclick=startMock;$('#startAiMock').onclick=startAiMock;const opm=$('#oldPaperMockBtn');if(opm)opm.onclick=startAiMock;$('#notAttempted').onclick=notAttempt;$('#nextBtn').onclick=next;$('#finishBtn').onclick=()=>finishQuiz();$('#bookmarkBtn').onclick=toggleBookmark;$('#next100Btn').onclick=()=>lastNextAction&&lastNextAction();$('#reviewWrongBtn').onclick=startWrong;$('#startWrong').onclick=startWrong;
   $('#themeBtn').onclick=()=>{state.theme=state.theme==='dark'?'light':'dark';applyTheme();save();};
   $('#resetBtn').onclick=()=>{if(confirm('Reset all CCE practice progress, adaptive local resume state and wrong-answer bank? Cloud progress will also reset if logged in.')){const theme=state.theme;state=defaultState();state.theme=theme;save();}};
   document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'){persistAdaptive();saveLocal(true);if(currentUser)saveCloud(false);}});
