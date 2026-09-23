@@ -2,7 +2,7 @@
   const $ = s => document.querySelector(s);
   const $$ = s => [...document.querySelectorAll(s)];
   const KEY='cceDaily100StateV3', LEGACY_KEY='cceDaily100StateV2';
-  let currentUser=null, cloudAvailable=false, aiAvailable=false, aiModel='', aiModels=[], aiLiveState='unknown', oldPaperData=null, syncTimer=null, currentAffairs=[], quiz=null, timerHandle=null, authMode='login', lastNextAction=null;
+  let currentUser=null, cloudAvailable=false, aiAvailable=false, aiModel='', aiModels=[], aiQuestionModel='', aiQuestionModels=[], aiLiveState='unknown', oldPaperData=null, syncTimer=null, currentAffairs=[], quiz=null, timerHandle=null, authMode='login', lastNextAction=null;
 
   function defaultState(){return {completed:0,correct:0,wrong:0,skipped:0,net:0,wrongBank:[],theme:'dark',sets:0,topicStats:{},updatedAt:0,ownerUserId:null,adaptiveSessions:{},adaptiveDaily:{}};}
   function normalizeState(raw){
@@ -79,7 +79,7 @@
   async function startAiMock(){
     if(!currentUser){alert('AI 2026 Real Mock માટે login જરૂરી છે.');openAuth();return;}
     if(!aiAvailable){alert('GEMINI_API_KEY configured નથી. Render Environmentમાં key add કરો.');return;}
-    showLoading('Building AI 2026 Real Mock','150 fresh questions બનાવી રહ્યા છીએ: Reasoning 60 • Quant 30 • GA/CA 30 • Gujarati 15 • English 15. Automatic retry/fallback enabled.');
+    showLoading('Building AI 2026 Real Mock','Fast v5 engine: smaller syllabus-focused batches + structured JSON + duplicate repair. Reasoning 60 • Quant 30 • GA/CA 30 • Gujarati 15 • English 15.');
     try{const d=await api('/api/adaptive/mock2026',{method:'POST',body:'{}'});resetEmpty();startQuiz(d.questions,`AI 2026 Real Mock • ${d.modelUsed||aiModel}`,120*60,'mock');}
     catch(e){resetEmpty();alert(`AI mock generation failed: ${e.message}`);switchView('practice');}
   }
@@ -162,7 +162,7 @@
   async function loadCloudProgress(){
     if(!currentUser)return;try{const d=await api('/api/progress');if(d.hasProgress&&d.progress){const cloud=normalizeState(d.progress),local=state;if(String(local.ownerUserId||'')===String(currentUser.id)&&(local.updatedAt||0)>(cloud.updatedAt||0)){await saveCloud();}else state=cloud;}else{state.ownerUserId=String(currentUser.id);await saveCloud();}saveLocal(false);applyTheme();renderAllProgress();}catch(_){renderAllProgress();}
   }
-  async function initAuth(){try{const d=await api('/api/auth/me',{method:'GET',headers:{}});cloudAvailable=!!d.database;aiAvailable=!!d.ai;aiModel=d.model||'';aiModels=Array.isArray(d.models)?d.models:[];currentUser=d.user||null;updateAuthUI();renderSourceStatus();if(currentUser)await loadCloudProgress();await checkAiConnection(false);await loadOldPapers();}catch(_){cloudAvailable=false;currentUser=null;updateAuthUI();}}
+  async function initAuth(){try{const d=await api('/api/auth/me',{method:'GET',headers:{}});cloudAvailable=!!d.database;aiAvailable=!!d.ai;aiModel=d.model||'';aiModels=Array.isArray(d.models)?d.models:[];aiQuestionModel=d.questionModel||aiModel;aiQuestionModels=Array.isArray(d.questionModels)?d.questionModels:[];currentUser=d.user||null;updateAuthUI();renderSourceStatus();if(currentUser)await loadCloudProgress();await checkAiConnection(false);await loadOldPapers();}catch(_){cloudAvailable=false;currentUser=null;updateAuthUI();}}
   function setAuthMode(mode){authMode=mode;const reg=mode==='register';$('#authTitle').textContent=reg?'Create account':'Login';$('#nameField').classList.toggle('hidden',!reg);$('#authSubmit').textContent=reg?'Create account':'Login';$('#authSwitch').textContent=reg?'Already have an account? Login':'Create a new account';$('#authPassword').autocomplete=reg?'new-password':'current-password';$('#authError').classList.add('hidden');}
   function openAuth(){setAuthMode('login');$('#authDialog').showModal();}
   $('#authBtn').onclick=openAuth;$('#closeAuth').onclick=()=>$('#authDialog').close();$('#authSwitch').onclick=()=>setAuthMode(authMode==='login'?'register':'login');
@@ -171,12 +171,12 @@
 
   function setApiBadge(state,label){const b=$('#apiBadge');if(!b)return;b.className=`api-badge ${state}`;b.querySelector('span').textContent=label;}
   function renderSourceStatus(){
-    const ai=$('#aiStatus');if(ai){if(!aiAvailable)ai.textContent='Not configured • add GEMINI_API_KEY on Render';else if(aiLiveState==='connected')ai.textContent=`Connected • ${aiModel||'Gemini'} • retry/fallback ON`;else if(aiLiveState==='busy-or-error')ai.textContent='Configured, but Gemini is busy/error • fallback will retry';else ai.textContent=`Configured • ${aiModel||'Gemini'} • connection not tested`;}
+    const ai=$('#aiStatus');if(ai){if(!aiAvailable)ai.textContent='Not configured • add GEMINI_API_KEY on Render';else if(aiLiveState==='connected')ai.textContent=`Connected • MCQ: ${aiQuestionModel||aiModel||'Gemini'} • retry/fallback ON`;else if(aiLiveState==='busy-or-error')ai.textContent='Configured, but Gemini is busy/error • fallback will retry';else ai.textContent=`Configured • MCQ: ${aiQuestionModel||aiModel||'Gemini'} • connection not tested`;}
     const b=$('#refreshAnalysisBtn');if(b)b.disabled=!aiAvailable||!currentUser;const t=$('#testAiBtn');if(t)t.disabled=!aiAvailable;
   }
   async function checkAiConnection(show=true){
     if(!aiAvailable){aiLiveState='not-configured';setApiBadge('off','AI not configured');renderSourceStatus();return;}
-    setApiBadge('checking','AI checking');try{const d=await api('/api/adaptive/test-ai',{method:'POST',body:'{}'});aiLiveState=d.state||'connected';aiModel=d.modelUsed||aiModel;setApiBadge('ok',`AI connected • ${aiModel}${d.fallbackUsed?' fallback':''}`);if(show)alert(`Gemini connected\nModel: ${aiModel}\nLatency: ${d.latencyMs} ms${d.fallbackUsed?'\nFallback model was used because primary was busy.':''}`);}catch(e){aiLiveState='busy-or-error';setApiBadge('busy','AI busy / retry');if(show)alert(e.message);}renderSourceStatus();
+    setApiBadge('checking','AI checking');try{const d=await api('/api/adaptive/test-ai',{method:'POST',body:'{}'});aiLiveState=d.state||'connected';aiQuestionModel=d.modelUsed||aiQuestionModel||aiModel;setApiBadge('ok',`AI connected • ${aiQuestionModel}${d.fallbackUsed?' fallback':''}`);if(show)alert(`Gemini connected\nMCQ model: ${aiQuestionModel}\nLatency: ${d.latencyMs} ms${d.fallbackUsed?'\nFallback model was used because primary was busy.':''}`);}catch(e){aiLiveState='busy-or-error';setApiBadge('busy','AI busy / retry');if(show)alert(e.message);}renderSourceStatus();
   }
   async function loadOldPapers(){
     try{const d=await api('/api/old-papers/analysis',{method:'GET',headers:{}});oldPaperData=d;renderOldPapers();}catch(_){oldPaperData=null;renderOldPapers();}

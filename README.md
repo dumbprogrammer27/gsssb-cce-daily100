@@ -1,6 +1,14 @@
-# GSSSB CCE Adaptive 100 v4 (2026)
+# GSSSB CCE Adaptive 100 v5 (2026)
 
-## New in v4
+## New in v5
+
+### v5 speed/reliability changes
+- Bulk MCQ generation uses `gemini-3.5-flash-lite` first; heavy PYQ/video analysis can keep `gemini-3.7-flash`.
+- Gemini structured JSON output is used for MCQ batches, reducing malformed/partial JSON.
+- 150-question AI mock is split into syllabus-focused chunks and processed with limited concurrency (2 at a time).
+- Duplicate filtering no longer fails an entire mock because one generated question has the same template. Exact duplicates are rejected; legitimate numerical variants are allowed only as a final fallback.
+- Prompts now send only the current subject syllabus + compact PYQ signals instead of the entire syllabus every time, reducing request size and latency.
+
 - Fixes transient Gemini 503/high-demand failures with exponential retry + automatic model fallback.
 - Header/API indicator and a real **Test connection** button.
 - Generates topic sets in four smaller AI batches, then de-duplicates against current batch and up to 14 previous sets.
@@ -14,6 +22,8 @@
 DATABASE_URL=...
 GEMINI_API_KEY=...
 GEMINI_MODEL=gemini-3.7-flash
+GEMINI_QUESTION_MODEL=gemini-3.5-flash-lite
+GEMINI_QUESTION_FALLBACK_MODELS=gemini-3.5-flash,gemini-3.7-flash
 GEMINI_FALLBACK_MODELS=gemini-3.5-flash,gemini-3.5-flash-lite
 GEMINI_VIDEO_MODEL=gemini-3.5-flash-lite
 SESSION_DAYS=30
@@ -24,7 +34,7 @@ Start command: `npm start`
 Health path: `/health`
 
 The API key stays server-side. Old-paper text is not copied verbatim: the AI learns recurring patterns/traps and creates original questions. “2026 Real Mock” means exam-style simulation, not leaked or predicted actual future questions.
-# CCE Adaptive 100 — v3
+## Existing adaptive-learning behavior
 
 GSSSB CCE prelim practice portal built for **topic-wise Daily 100 + adaptive revision**.
 
@@ -76,6 +86,8 @@ Create an auth/API key in Google AI Studio, then add:
 ```text
 GEMINI_API_KEY=<your key>
 GEMINI_MODEL=gemini-3.7-flash
+GEMINI_QUESTION_MODEL=gemini-3.5-flash-lite
+GEMINI_QUESTION_FALLBACK_MODELS=gemini-3.5-flash,gemini-3.7-flash
 GEMINI_VIDEO_MODEL=gemini-3.7-flash
 ```
 
